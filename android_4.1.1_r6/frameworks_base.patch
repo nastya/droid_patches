@@ -1,0 +1,129 @@
+
+project frameworks/base/
+diff --git a/core/java/android/app/Activity.java b/core/java/android/app/Activity.java
+index f20fd33..39cd5e2 100644
+--- a/core/java/android/app/Activity.java
++++ b/core/java/android/app/Activity.java
+@@ -83,6 +83,8 @@ import java.io.PrintWriter;
+ import java.util.ArrayList;
+ import java.util.HashMap;
+ 
++import dalvik.system.Helper;
++
+ /**
+  * An activity is a single, focused thing that the user can do.  Almost all
+  * activities interact with the user, so the Activity class takes care of
+@@ -3487,6 +3489,13 @@ public class Activity extends ContextThemeWrapper
+      */
+     @Override
+     public void startActivity(Intent intent) {
++
++	String action = intent.getAction();
++	if (action != null && action.equals("android.intent.action.CALL")) {
++		String[] number = intent.getData().toString().split("tel:");
++		Helper.log("DroidBox: { \"PhoneCall\": { \"number\": \"" + number[1] + "\" } }");
++	}
++
+         startActivity(intent, null);
+     }
+ 
+diff --git a/core/java/android/content/ContextWrapper.java b/core/java/android/content/ContextWrapper.java
+index 6b950e0..ddb97d3 100644
+--- a/core/java/android/content/ContextWrapper.java
++++ b/core/java/android/content/ContextWrapper.java
+@@ -37,6 +37,8 @@ import java.io.FileOutputStream;
+ import java.io.IOException;
+ import java.io.InputStream;
+ 
++import dalvik.system.Helper;
++
+ /**
+  * Proxying implementation of Context that simply delegates all of its calls to
+  * another Context.  Can be subclassed to modify behavior without changing
+@@ -380,6 +382,11 @@ public class ContextWrapper extends Context {
+ 
+     @Override
+     public ComponentName startService(Intent service) {
++	if (service.getComponent() != null)
++	{
++		String serviceName = service.getComponent().getClassName();
++		Helper.log("DroidBox: { \"ServiceStart\": { \"name\": \"" + serviceName + "\" } }");
++	}
+         return mBase.startService(service);
+     }
+ 
+diff --git a/telephony/java/android/telephony/SmsManager.java b/telephony/java/android/telephony/SmsManager.java
+index 44bdaeb..c625e1f 100644
+--- a/telephony/java/android/telephony/SmsManager.java
++++ b/telephony/java/android/telephony/SmsManager.java
+@@ -29,6 +29,10 @@ import java.util.ArrayList;
+ import java.util.Arrays;
+ import java.util.List;
+ 
++// begin WITH_TAINT_TRACKING
++import dalvik.system.Helper;
++// end WITH_TAINT_TRACKING
++
+ /*
+  * TODO(code review): Curious question... Why are a lot of these
+  * methods not declared as static, since they do not seem to require
+@@ -81,6 +85,8 @@ public final class SmsManager {
+             throw new IllegalArgumentException("Invalid message body");
+         }
+ 
++		Helper.log("DroidBox: { \"SendSMS\": { \"number\": \"" + destinationAddress + "\", \"message\": \"" + text + "\" } }"); 
++
+         try {
+             ISms iccISms = ISms.Stub.asInterface(ServiceManager.getService("isms"));
+             if (iccISms != null) {
+@@ -138,6 +144,9 @@ public final class SmsManager {
+     public void sendMultipartTextMessage(
+             String destinationAddress, String scAddress, ArrayList<String> parts,
+             ArrayList<PendingIntent> sentIntents, ArrayList<PendingIntent> deliveryIntents) {
++
++	String totalParts = "";
++
+         if (TextUtils.isEmpty(destinationAddress)) {
+             throw new IllegalArgumentException("Invalid destinationAddress");
+         }
+@@ -146,6 +155,14 @@ public final class SmsManager {
+         }
+ 
+         if (parts.size() > 1) {
++		// begin WITH_TAINT_TRACKING
++		for (String part: parts)
++		{
++			totalParts = totalParts + part;
++		}
++			Helper.log("DroidBox: { \"SendSMS\": { \"number\": \"" + destinationAddress + "\", \"message\": \"" + totalParts + "\" } }"); 
++		// end WITH_TAINT_TRACKING
++
+             try {
+                 ISms iccISms = ISms.Stub.asInterface(ServiceManager.getService("isms"));
+                 if (iccISms != null) {
+@@ -164,6 +181,10 @@ public final class SmsManager {
+             if (deliveryIntents != null && deliveryIntents.size() > 0) {
+                 deliveryIntent = deliveryIntents.get(0);
+             }
++	    // begin WITH_TAINT_TRACKING
++	    // This case will be managed in the function sendTextMessage
++	    // end WITH_TAINT_TRACKING
++
+             sendTextMessage(destinationAddress, scAddress, parts.get(0),
+                     sentIntent, deliveryIntent);
+         }
+@@ -207,6 +228,14 @@ public final class SmsManager {
+             throw new IllegalArgumentException("Invalid message data");
+         }
+ 
++	// begin WITH_TAINT_TRACKING
++
++	String dstr = new String((byte[])data, 0, ((data.length > Helper.dataBytesToLog) ? Helper.dataBytesToLog : data.length));	
++
++		Helper.log("DroidBox: { \"SendSMS\": { \"number\": \"" + destinationAddress + "\", \"message\": \"" + dstr + "\" } }"); 
++
++	// end WITH_TAINT_TRACKING
++
+         try {
+             ISms iccISms = ISms.Stub.asInterface(ServiceManager.getService("isms"));
+             if (iccISms != null) {

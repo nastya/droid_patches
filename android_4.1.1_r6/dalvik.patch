@@ -1,0 +1,161 @@
+
+project dalvik/
+diff --git a/vm/Dvm.mk b/vm/Dvm.mk
+index 4aa054d..f317fe5 100644
+--- a/vm/Dvm.mk
++++ b/vm/Dvm.mk
+@@ -149,6 +149,7 @@ LOCAL_SRC_FILES := \
+ 	native/dalvik_system_VMRuntime.cpp \
+ 	native/dalvik_system_VMStack.cpp \
+ 	native/dalvik_system_Zygote.cpp \
++	native/dalvik_system_Helper.cpp \
+ 	native/java_lang_Class.cpp \
+ 	native/java_lang_Double.cpp \
+ 	native/java_lang_Float.cpp \
+@@ -182,7 +183,7 @@ LOCAL_SRC_FILES := \
+ 	reflect/Reflect.cpp \
+ 	test/AtomicTest.cpp.arm \
+ 	test/TestHash.cpp \
+-	test/TestIndirectRefTable.cpp
++	test/TestIndirectRefTable.cpp \
+ 
+ # TODO: this is the wrong test, but what's the right one?
+ ifeq ($(dvm_arch),arm)
+diff --git a/vm/native/InternalNative.cpp b/vm/native/InternalNative.cpp
+index 0d06ea7..933b194 100644
+--- a/vm/native/InternalNative.cpp
++++ b/vm/native/InternalNative.cpp
+@@ -53,6 +53,9 @@ static DalvikNativeClass gDvmNativeMethodSet[] = {
+     { "Ldalvik/system/VMRuntime;",        dvm_dalvik_system_VMRuntime, 0 },
+     { "Ldalvik/system/Zygote;",           dvm_dalvik_system_Zygote, 0 },
+     { "Ldalvik/system/VMStack;",          dvm_dalvik_system_VMStack, 0 },
++#ifdef WITH_TAINT_TRACKING
++    { "Ldalvik/system/Taint;",            dvm_dalvik_system_Taint, 0 },
++#endif
+     { "Lorg/apache/harmony/dalvik/ddmc/DdmServer;",
+             dvm_org_apache_harmony_dalvik_ddmc_DdmServer, 0 },
+     { "Lorg/apache/harmony/dalvik/ddmc/DdmVmInternal;",
+diff --git a/vm/native/dalvik_system_Helper.cc b/vm/native/dalvik_system_Helper.cc
+new file mode 100644
+index 0000000..774a97f
+--- /dev/null
++++ b/vm/native/dalvik_system_Helper.cc
+@@ -0,0 +1,118 @@
++/*
++ * Author: Anastasia Skovoroda <nastya_jane@seclab.cs.msu.su>
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++#include "dalvik_system_Helper.h"
++
++#include "native/InternalNativePriv.h"
++#include "attr/xattr.h"
++
++#include <errno.h>
++
++/*
++ * public static void log(String msg)
++ */
++static void Dalvik_dalvik_system_Helper_log(const u4* args,
++    JValue* pResult)
++{
++    StringObject* msgObj = (StringObject*) args[0];
++    char *msg;
++
++    if (msgObj == NULL) {
++	dvmThrowNullPointerException("msgObj == NULL");
++	RETURN_VOID();
++    }
++
++	msg = dvmCreateCstrFromString(msgObj);
++	//ALOG(LOG_WARN, "TaintLog", "%s", msg);
++	ALOG(LOG_WARN, "DroidBox", "%s", msg);
++
++	char *curmsg = msg;
++	while(strlen(curmsg) > 1013)
++	{   
++		curmsg = curmsg+1013;
++		//ALOG(LOG_WARN, "TaintLog", "%s", curmsg);
++		ALOG(LOG_WARN, "DroidBox", "%s", curmsg);
++	}
++	free(msg);
++
++    RETURN_VOID();
++}
++
++/*
++ * public static void logPathFromFd(int fd)
++ */
++static void Dalvik_dalvik_system_Helper_logPathFromFd(const u4* args,
++    JValue* pResult)
++{
++    int fd = (int) args[0];
++    int id = (int) args[1];
++
++    pid_t pid;
++    char ppath[20]; // these path lengths should be enough
++    char rpath[120];
++    char buffer[(2*120)+1] = "";
++    char *pbuffer = buffer;
++   
++    int err;
++    int output = 0;
++
++    int len, i;
++
++    pid = getpid();
++    snprintf(ppath, 20, "/proc/%d/fd/%d", pid, fd);
++    err = readlink(ppath, rpath, sizeof(rpath));
++
++    if (err>=0)
++    {
++            int pos = (err < sizeof(rpath))?err:sizeof(rpath)-1;
++            rpath[pos] = '\0';
++
++            //we are not interested in files /dev/pts, and in files inside the folders /system" and "/data/app"
++            if (strstr(rpath, "/dev/pts") == NULL && strstr(rpath, "/system/") == NULL && strstr(rpath, "/data/app/") == NULL && strstr(rpath, "/sys/kernel/") == NULL) {
++
++                output = 1;
++                len = strlen(rpath);
++
++                for (i = 0; i < len; i++) {
++                        sprintf(pbuffer, "%x", rpath[i]);
++                        pbuffer += 2;
++                }
++
++                ALOGW("DroidBox: { \"FdAccess\": { \"path\": \"%s\", \"id\": \"%d\" } }", buffer, id);
++             }
++
++    }else{
++                ALOGW("DroidBox: error finding path for fd %d", fd);
++    }
++
++    RETURN_VOID();
++    //RETURN_INT(output);
++}
++
++/*static jint Dalvik_dalvik_system_Helper_getFdId(JNIEnv* env, jclass, jobject object) {
++    int fd = jniGetFDFromFileDescriptor(env, object);
++    return (jint) fd;
++}*/
++
++const DalvikNativeMethod dvm_dalvik_system_Helper[] = {
++    { "log",  "(Ljava/lang/String;)V",
++        Dalvik_dalvik_system_Helper_log},
++    //{ "logPathFromFd",  "(I)V",
++    { "logPathFromFd",  "(II)V",
++        Dalvik_dalvik_system_Helper_logPathFromFd},
++    { NULL, NULL, NULL },
++};
++ 

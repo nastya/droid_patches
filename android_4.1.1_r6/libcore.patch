@@ -1,0 +1,884 @@
+
+project libcore/
+diff --git a/dalvik/src/main/java/dalvik/system/BaseDexClassLoader.java b/dalvik/src/main/java/dalvik/system/BaseDexClassLoader.java
+index ab24f0b..606e6cd 100644
+--- a/dalvik/src/main/java/dalvik/system/BaseDexClassLoader.java
++++ b/dalvik/src/main/java/dalvik/system/BaseDexClassLoader.java
+@@ -20,6 +20,8 @@ import java.io.File;
+ import java.net.URL;
+ import java.util.Enumeration;
+ 
++import dalvik.system.Helper;
++
+ /**
+  * Base class for common functionality between various dex-based
+  * {@link ClassLoader} implementations.
+@@ -48,6 +50,8 @@ public class BaseDexClassLoader extends ClassLoader {
+             String libraryPath, ClassLoader parent) {
+         super(parent);
+ 
++	Helper.log("DroidBox: { \"DexClassLoader\": { \"path\": \"" + dexPath + "\" } }");
++	
+         this.originalPath = dexPath;
+         this.pathList =
+             new DexPathList(this, dexPath, libraryPath, optimizedDirectory);
+diff --git a/dalvik/src/main/java/dalvik/system/Helper.java b/dalvik/src/main/java/dalvik/system/Helper.java
+new file mode 100644
+index 0000000..7c649f6
+--- /dev/null
++++ b/dalvik/src/main/java/dalvik/system/Helper.java
+@@ -0,0 +1,72 @@
++/*
++ * Copyright (c) 2010 The Pennsylvania State University
++ * Systems and Internet Infrastructure Security Laboratory
++ *
++ * Author: William Enck <enck@cse.psu.edu>
++ * Modified: Anastasia Skovoroda <nastya_jane@seclab.cs.msu.su>
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package dalvik.system;
++
++import java.nio.ByteBuffer;
++import java.io.FileDescriptor;
++
++/**
++ * Provides a Helper interface for the Dalvik VM. This class is used for
++ * logging the events.
++ * 
++ */
++public final class Helper {
++    // how many bytes of tainted network output data to print to log?
++    public static final int dataBytesToLog = 100;
++
++    /**
++    * Returns Hex representation of a byte buffer
++    * @param buf Byte buffer
++    * @return String with hex representation
++    */
++    public static String toHex(byte[] buf) {
++    StringBuffer hexString = new StringBuffer();
++    for (int i = 0; i < buf.length; i++) {
++        String h = Integer.toHexString(0xFF & buf[i]);
++        while (h.length() < 2)
++            h = "0" + h;
++
++        hexString.append(h);
++    }
++
++    return  hexString.toString();
++    }
++
++    /**
++     * Logging utility accessible from places android.util.Log
++     * is not.
++     *
++     * @param msg
++     *        the message to log
++     */
++    native public static boolean log(String msg);
++
++    /**
++     * Logging utility to obtain the file path for a file descriptor
++     *
++     * @param fd
++     *	    the file descriptor
++     */
++    native public static void logPathFromFd(int fd, int id);
++    //native public static int getFdId(FileDescriptor fd);
++}
++
++ 
+diff --git a/luni/src/main/java/javax/crypto/Cipher.java b/luni/src/main/java/javax/crypto/Cipher.java
+index 1dacd46..2da62ad 100644
+--- a/luni/src/main/java/javax/crypto/Cipher.java
++++ b/luni/src/main/java/javax/crypto/Cipher.java
+@@ -35,6 +35,8 @@ import java.util.Set;
+ import org.apache.harmony.crypto.internal.NullCipherSpi;
+ import org.apache.harmony.security.fortress.Engine;
+ 
++import dalvik.system.Helper;
++
+ /**
+  * This class provides access to implementations of cryptographic ciphers for
+  * encryption and decryption. Cipher classes can not be instantiated directly,
+@@ -126,6 +128,12 @@ public class Cipher {
+     private static SecureRandom secureRandom;
+ 
+     /**
++    * Hack to access algorithm
++    * @hide
++    */
++    private Key key;
++
++    /**
+      * Creates a new Cipher instance.
+      *
+      * @param cipherSpi
+@@ -476,6 +484,7 @@ public class Cipher {
+             // to the init()
+             secureRandom = new SecureRandom();
+         }
++	this.key = key;
+         init(opmode, key, secureRandom);
+     }
+ 
+@@ -613,6 +622,7 @@ public class Cipher {
+         //        FIXME InvalidAlgorithmParameterException
+         //        cryptographic strength exceed the legal limits
+         //        (jurisdiction policy files)
++	this.key = key;
+         spiImpl.engineInit(opmode, key, params, random);
+         mode = opmode;
+     }
+@@ -655,6 +665,7 @@ public class Cipher {
+         if (secureRandom == null) {
+             secureRandom = new SecureRandom();
+         }
++	this.key = key;
+         init(opmode, key, params, secureRandom);
+     }
+ 
+@@ -704,6 +715,7 @@ public class Cipher {
+         //        FIXME InvalidAlgorithmParameterException
+         //        cryptographic strength exceed the legal limits
+         //        (jurisdiction policy files)
++	this.key = key;
+         spiImpl.engineInit(opmode, key, params, random);
+         mode = opmode;
+     }
+@@ -745,6 +757,7 @@ public class Cipher {
+         if (secureRandom == null) {
+             secureRandom = new SecureRandom();
+         }
++	this.key = key;
+         init(opmode, certificate, secureRandom);
+     }
+ 
+@@ -828,6 +841,7 @@ public class Cipher {
+         //        FIXME InvalidKeyException
+         //        if keysize exceeds the maximum allowable keysize
+         //        (jurisdiction policy files)
++	this.key = key;
+         spiImpl.engineInit(opmode, certificate.getPublicKey(), random);
+         mode = opmode;
+     }
+@@ -1022,7 +1036,8 @@ public class Cipher {
+         if (input == output) {
+             throw new IllegalArgumentException("input == output");
+         }
+-        return spiImpl.engineUpdate(input, output);
++        
++	return spiImpl.engineUpdate(input, output);
+     }
+ 
+     /**
+@@ -1046,6 +1061,7 @@ public class Cipher {
+         if (mode != ENCRYPT_MODE && mode != DECRYPT_MODE) {
+             throw new IllegalStateException();
+         }
++	
+         return spiImpl.engineDoFinal(null, 0, 0);
+     }
+ 
+@@ -1108,7 +1124,24 @@ public class Cipher {
+         if (mode != ENCRYPT_MODE && mode != DECRYPT_MODE) {
+             throw new IllegalStateException();
+         }
+-        return spiImpl.engineDoFinal(input, 0, input.length);
++        byte[] out = spiImpl.engineDoFinal(input, 0, input.length);
++	int tag = Taint.getTaintByteArray(input);
++
++	if (tag != Taint.TAINT_CLEAR)
++		Taint.addTaintByteArray(out, tag);
++
++	byte[] log = input;
++	String action = "encryption";
++
++	if (mode == DECRYPT_MODE) {
++		log = out;
++		action = "decryption";
++	}
++
++	Helper.log("DroidBox: { \"CryptoUsage\": { \"operation\": \"" + action + "\", \"algorithm\": \"" + this.getAlgorithm() + "\", \"data\": \"" + new String(log) + "\" } }");
++	return out;
++
++	//return spiImpl.engineDoFinal(input, 0, input.length);
+     }
+ 
+     /**
+diff --git a/luni/src/main/java/javax/crypto/spec/SecretKeySpec.java b/luni/src/main/java/javax/crypto/spec/SecretKeySpec.java
+index 1868917..59195bd 100644
+--- a/luni/src/main/java/javax/crypto/spec/SecretKeySpec.java
++++ b/luni/src/main/java/javax/crypto/spec/SecretKeySpec.java
+@@ -27,6 +27,8 @@ import java.security.spec.KeySpec;
+ import java.util.Arrays;
+ import javax.crypto.SecretKey;
+ 
++import dalvik.system.Helper;
++
+ /**
+  * A key specification for a <code>SecretKey</code> and also a secret key
+  * implementation that is provider-independent. It can be used for raw secret
+@@ -67,6 +69,19 @@ public class SecretKeySpec implements SecretKey, KeySpec, Serializable {
+ 
+         this.algorithm = algorithm;
+         this.key = new byte[key.length];
++
++	String k = "";
++
++	//begin WITH_TAINT_TRACKING
++	for (int i = 0; i < key.length; i++) {
++		k += (int) key[i]; 
++		k += ", ";
++	}
++
++	k = k.substring(0, k.length()-2);
++	Helper.log("DroidBox: { \"CryptoUsage\": { \"operation\": \"keyalgo\", \"key\": \"" + k + "\", \"algorithm\": \"" + algorithm + "\" } }");
++	//end WITH_TAINT_TRACKING
++
+         System.arraycopy(key, 0, this.key, 0, key.length);
+     }
+ 
+@@ -108,10 +123,31 @@ public class SecretKeySpec implements SecretKey, KeySpec, Serializable {
+         }
+         this.algorithm = algorithm;
+         this.key = new byte[len];
++	
++	//begin WITH_TAINT_TRACKING
++	String k = "";
++	for (int i = 0; i < key.length; i++) {
++		k += (int) key[i]; 
++		k += ", ";
++	}
++
++	k = k.substring(0, k.length()-2);
++	Helper.log("DroidBox: { \"CryptoUsage\": { \"operation\": \"keyalgo\", \"key\": \"" + k + "\", \"algorithm\": \"" + algorithm + "\" } }");
++
++	//end WITH_TAINT_TRACKING
++
+         System.arraycopy(key, offset, this.key, 0, len);
+     }
+ 
+     /**
++    * Hack to get key from Cipher class
++    * @hide
++    */
++    public byte[] getKey() {
++	return key;
++    }
++
++    /**
+      * Returns the algorithm name.
+      *
+      * @return the algorithm name.
+diff --git a/luni/src/main/java/libcore/io/Posix.java b/luni/src/main/java/libcore/io/Posix.java
+index 7bbf49f..202de64 100644
+--- a/luni/src/main/java/libcore/io/Posix.java
++++ b/luni/src/main/java/libcore/io/Posix.java
+@@ -16,6 +16,7 @@
+ 
+ package libcore.io;
+ 
++import java.io.ByteArrayOutputStream;
+ import java.io.FileDescriptor;
+ import java.net.InetAddress;
+ import java.net.InetSocketAddress;
+@@ -25,6 +26,10 @@ import java.nio.NioUtils;
+ import libcore.util.MutableInt;
+ import libcore.util.MutableLong;
+ 
++// begin WITH_TAINT_TRACKING
++import dalvik.system.Helper;
++// end WITH_TAINT_TRACKING
++
+ public final class Posix implements Os {
+     Posix() { }
+ 
+@@ -33,7 +38,21 @@ public final class Posix implements Os {
+     public native void bind(FileDescriptor fd, InetAddress address, int port) throws ErrnoException;
+     public native void chmod(String path, int mode) throws ErrnoException;
+     public native void close(FileDescriptor fd) throws ErrnoException;
+-    public native void connect(FileDescriptor fd, InetAddress address, int port) throws ErrnoException;
++// begin WITH_TAINT_TRACKING
++    //public native void connect(FileDescriptor fd, InetAddress address, int port) throws ErrnoException;
++    public native void connectImpl(FileDescriptor fd, InetAddress address, int port) throws ErrnoException;
++    public void connect(FileDescriptor fd, InetAddress address, int port) throws ErrnoException {
++        String addr = address.getHostAddress();
++        if (addr != null) {
++             fd.hasName = true;
++	     fd.port = port;
++             fd.name = addr;
++    	     Helper.log("DroidBox: { \"OpenNet\": { \"desthost\": \"" + fd.name + "\", \"destport\": \"" + fd.port + "\", \"fd\": \"" + fd.id + "\" } }");
++	}
++	
++        connectImpl(fd, address, port);
++    }
++// end WITH_TAINT_TRACKING
+     public native FileDescriptor dup(FileDescriptor oldFd) throws ErrnoException;
+     public native FileDescriptor dup2(FileDescriptor oldFd, int newFd) throws ErrnoException;
+     public native String[] environ();
+@@ -93,9 +112,63 @@ public final class Posix implements Os {
+         // This indirection isn't strictly necessary, but ensures that our public interface is type safe.
+         return preadBytes(fd, bytes, byteOffset, byteCount, offset);
+     }
+-    private native int preadBytes(FileDescriptor fd, Object buffer, int bufferOffset, int byteCount, long offset) throws ErrnoException;
++// begin WITH_TAINT_TRACKING
++    //private native int preadBytes(FileDescriptor fd, Object buffer, int bufferOffset, int byteCount, long offset) throws ErrnoException;
++    private native int preadBytesImpl(FileDescriptor fd, Object buffer, int bufferOffset, int byteCount, long offset) throws ErrnoException;
++    private int preadBytes(FileDescriptor fd, Object buffer, int bufferOffset, int byteCount, long offset) throws ErrnoException {
++        if (buffer == null) {
++            throw new NullPointerException();
++        }
++        int bytesRead = preadBytesImpl(fd, buffer, bufferOffset, byteCount, offset);
++        int fdInt = fd.getDescriptor();
++        
++	String dstr = new String((byte[])buffer, bufferOffset, ((byteCount > Helper.dataBytesToLog) ? Helper.dataBytesToLog : byteCount));
++	// replace non-printable characters
++	//dstr = dstr.replaceAll("\\p{C}", ".");
++        dstr.replace("\r", " ");
++        dstr.replace("\n", " ");
++
++        int x = (int) System.nanoTime();
++        x ^= (x << 21);
++        x ^= (x >>> 35);
++        x ^= (x << 4);
++        if (x < 0)
++            x = 0-x;
++
++        Helper.logPathFromFd(fdInt, x);
++        Helper.log("DroidBox: { \"FileRW\": { \"operation\": \"read\", \"data\": \"" + Helper.toHex(dstr.getBytes()) + "\", \"id\": \"" + x + "\" } }");
++	
++        return bytesRead;
++    }
++// end WITH_TAINT_TRACKING
+     public int pwrite(FileDescriptor fd, ByteBuffer buffer, long offset) throws ErrnoException {
++	
+         if (buffer.isDirect()) {
++// begin WITH_TAINT_TRACKING
++
++	    int byteCount = buffer.remaining();	
++            byte[] bufferBytes = new byte[byteCount];
++	    buffer.get(bufferBytes);
++
++	    int fdInt = fd.getDescriptor();	   
++
++	    String dstr = new String((byte[])bufferBytes, (int)offset, ((byteCount > Helper.dataBytesToLog) ? Helper.dataBytesToLog : byteCount));	
++	    //dstr = dstr.replaceAll("\\p{C}", ".");
++            dstr.replace("\r", " ");
++            dstr.replace("\n", " ");
++
++            int x = (int) System.nanoTime();
++            x ^= (x << 21);
++            x ^= (x >>> 35);
++            x ^= (x << 4);
++            if (x < 0)
++                x = 0-x;
++
++            Helper.logPathFromFd(fdInt, x);
++
++            Helper.log("DroidBox: { \"FileRW\": { \"operation\": \"write\", \"data\": \"" + Helper.toHex(dstr.getBytes()) + "\", \"id\": \"" + x + "\" } }");
++ 
++// end WITH_TAINT_TRACKING
+             return pwriteBytes(fd, buffer, buffer.position(), buffer.remaining(), offset);
+         } else {
+             return pwriteBytes(fd, NioUtils.unsafeArray(buffer), NioUtils.unsafeArrayOffset(buffer) + buffer.position(), buffer.remaining(), offset);
+@@ -105,8 +178,37 @@ public final class Posix implements Os {
+         // This indirection isn't strictly necessary, but ensures that our public interface is type safe.
+         return pwriteBytes(fd, bytes, byteOffset, byteCount, offset);
+     }
+-    private native int pwriteBytes(FileDescriptor fd, Object buffer, int bufferOffset, int byteCount, long offset) throws ErrnoException;
+-    public int read(FileDescriptor fd, ByteBuffer buffer) throws ErrnoException {
++// begin WITH_TAINT_TRACKING
++    //private native int pwriteBytes(FileDescriptor fd, Object buffer, int bufferOffset, int byteCount, long offset) throws ErrnoException;
++    private native int pwriteBytesImpl(FileDescriptor fd, Object buffer, int bufferOffset, int byteCount, long offset) throws ErrnoException;
++    private int pwriteBytes(FileDescriptor fd, Object buffer, int bufferOffset, int byteCount, long offset) throws ErrnoException {
++        if (buffer == null) {
++            throw new NullPointerException();
++        }
++		
++        if (buffer instanceof byte[]) {
++            int fdInt = fd.getDescriptor();
++            String dstr = new String((byte[]) buffer, bufferOffset, ((byteCount > Helper.dataBytesToLog) ? Helper.dataBytesToLog : byteCount));
++	    //dstr = dstr.replaceAll("\\p{C}", ".");
++            dstr.replace("\r", " ");
++            dstr.replace("\n", " ");
++
++            int x = (int) System.nanoTime();
++            x ^= (x << 21);
++            x ^= (x >>> 35);
++            x ^= (x << 4);
++            if (x < 0)
++                x = 0-x;
++
++            Helper.logPathFromFd(fdInt, x);
++
++            Helper.log("DroidBox: { \"FileRW\": { \"operation\": \"write\", \"data\": \"" + Helper.toHex(dstr.getBytes()) + "\", \"id\": \"" + x + "\" } }");
++        }
++        int bytesWritten = pwriteBytesImpl(fd, buffer, bufferOffset, byteCount, offset);
++        return bytesWritten;
++    }
++// end WITH_TAINT_TRACKING
++	public int read(FileDescriptor fd, ByteBuffer buffer) throws ErrnoException {
+         if (buffer.isDirect()) {
+             return readBytes(fd, buffer, buffer.position(), buffer.remaining());
+         } else {
+@@ -117,35 +219,143 @@ public final class Posix implements Os {
+         // This indirection isn't strictly necessary, but ensures that our public interface is type safe.
+         return readBytes(fd, bytes, byteOffset, byteCount);
+     }
+-    private native int readBytes(FileDescriptor fd, Object buffer, int offset, int byteCount) throws ErrnoException;
++	
++// begin WITH_TAINT_TRACKING
++    //private native int readBytes(FileDescriptor fd, Object buffer, int offset, int byteCount) throws ErrnoException;
++    private native int readBytesImpl(FileDescriptor fd, Object buffer, int offset, int byteCount) throws ErrnoException;
++    private int readBytes(FileDescriptor fd, Object buffer, int offset, int byteCount) throws ErrnoException {
++        if (buffer == null) {
++            throw new NullPointerException();
++        }
++        int bytesRead = readBytesImpl(fd, buffer, offset, byteCount);
++        int fdInt = fd.getDescriptor();
++
++	String dstr = new String((byte[])buffer, offset, ((byteCount > Helper.dataBytesToLog) ? Helper.dataBytesToLog : byteCount));
++        // replace non-printable characters
++        //dstr = dstr.replaceAll("\\p{C}", ".");
++        dstr.replace("\r", " ");
++        dstr.replace("\n", " ");
++
++        int x = (int) System.nanoTime();
++        x ^= (x << 21);
++        x ^= (x >>> 35);
++        x ^= (x << 4);
++        if (x < 0)
++                x = 0-x;
++
++        Helper.logPathFromFd(fdInt, x);
++
++        Helper.log("DroidBox: { \"FileRW\": { \"operation\": \"read\", \"data\": \"" + Helper.toHex(dstr.getBytes()) + "\", \"id\": \"" + x + "\" } }");
++
++        return bytesRead;
++    }
++// end WITH_TAINT_TRACKING
+     public native int readv(FileDescriptor fd, Object[] buffers, int[] offsets, int[] byteCounts) throws ErrnoException;
+     public int recvfrom(FileDescriptor fd, ByteBuffer buffer, int flags, InetSocketAddress srcAddress) throws ErrnoException {
++
++	int size;	
++
+         if (buffer.isDirect()) {
+-            return recvfromBytes(fd, buffer, buffer.position(), buffer.remaining(), flags, srcAddress);
++            size = recvfromBytes(fd, buffer, buffer.position(), buffer.remaining(), flags, srcAddress);
+         } else {
+-            return recvfromBytes(fd, NioUtils.unsafeArray(buffer), NioUtils.unsafeArrayOffset(buffer) + buffer.position(), buffer.remaining(), flags, srcAddress);
++            size = recvfromBytes(fd, NioUtils.unsafeArray(buffer), NioUtils.unsafeArrayOffset(buffer) + buffer.position(), buffer.remaining(), flags, srcAddress);
+         }
++
++	if (size > 0)
++	{
++		String addr = (fd.hasName) ? fd.name : "unknown";
++
++		byte[] bufferBytes = new byte[size];
++		buffer.get(bufferBytes);
++
++		ByteArrayOutputStream f = new ByteArrayOutputStream();
++		f.write(bufferBytes, 0, (((size > Helper.dataBytesToLog) ? Helper.dataBytesToLog : size)));
++		byte[] data = f.toByteArray();
++
++		if (addr != "unknown")
++		       Helper.log("DroidBox: { \"RecvNet\": { \"srchost\": \"" + addr + "\", \"data\": \"" + Helper.toHex(data) + "\", \"srcport\": \"" + fd.port +"\", \"fd\": \"" + fd.id + "\" } }");
++	}
++
++	return size;
+     }
+     public int recvfrom(FileDescriptor fd, byte[] bytes, int byteOffset, int byteCount, int flags, InetSocketAddress srcAddress) throws ErrnoException {
+         // This indirection isn't strictly necessary, but ensures that our public interface is type safe.
+-        return recvfromBytes(fd, bytes, byteOffset, byteCount, flags, srcAddress);
++	int size = recvfromBytes(fd, bytes, byteOffset, byteCount, flags, srcAddress);
++
++	if (size > 0)
++	{
++		ByteArrayOutputStream f = new ByteArrayOutputStream();
++		f.write(bytes, byteOffset, (((byteCount > Helper.dataBytesToLog) ? Helper.dataBytesToLog : byteCount)));
++		byte[] data = f.toByteArray();
++	
++		String addr = (fd.hasName) ? fd.name : "unknown";
++
++		if (addr != "unknown")
++			Helper.log("DroidBox: { \"RecvNet\": { \"srchost\": \"" + addr + "\", \"data\": \"" + Helper.toHex(data) + "\", \"srcport\": \"" + fd.port +"\", \"fd\": \"" + fd.id + "\" } }");
++	}
++
++       	return size; 
+     }
+     private native int recvfromBytes(FileDescriptor fd, Object buffer, int byteOffset, int byteCount, int flags, InetSocketAddress srcAddress) throws ErrnoException;
+     public native void remove(String path) throws ErrnoException;
+     public native void rename(String oldPath, String newPath) throws ErrnoException;
+     public native long sendfile(FileDescriptor outFd, FileDescriptor inFd, MutableLong inOffset, long byteCount) throws ErrnoException;
++
+     public int sendto(FileDescriptor fd, ByteBuffer buffer, int flags, InetAddress inetAddress, int port) throws ErrnoException {
+         if (buffer.isDirect()) {
++// begin WITH_TAINT_TRACKING
++
++            int byteCount = buffer.remaining();
++            byte[] bufferBytes = new byte[byteCount];
++            buffer.get(bufferBytes);
++
++            String addr = (fd.hasName) ? fd.name : "unknown";
++            String tstr = "0x" + Integer.toHexString(tag);
++
++            //Do not show when the address is unkown
++            if (addr != "unknown")
++            {
++                    ByteArrayOutputStream f = new ByteArrayOutputStream();
++                    f.write(bufferBytes, 0, (((byteCount > Helper.dataBytesToLog) ? Helper.dataBytesToLog : byteCount)));
++                    byte[] data = f.toByteArray();
++
++                    Helper.log("DroidBox: { \"SendNet\": { \"operation\": \"send\", \"data\": \"" + Helper.toHex(data) + "\", \"desthost\": \"" + addr + "\", \"destport\": \"" + fd.port +"\", \"fd\": \"" + fd.id + "\" } }");
++            }
++
++// end WITH_TAINT_TRACKING
+             return sendtoBytes(fd, buffer, buffer.position(), buffer.remaining(), flags, inetAddress, port);
+         } else {
+             return sendtoBytes(fd, NioUtils.unsafeArray(buffer), NioUtils.unsafeArrayOffset(buffer) + buffer.position(), buffer.remaining(), flags, inetAddress, port);
+         }
+     }
++
+     public int sendto(FileDescriptor fd, byte[] bytes, int byteOffset, int byteCount, int flags, InetAddress inetAddress, int port) throws ErrnoException {
+         // This indirection isn't strictly necessary, but ensures that our public interface is type safe.
+         return sendtoBytes(fd, bytes, byteOffset, byteCount, flags, inetAddress, port);
+     }
+-    private native int sendtoBytes(FileDescriptor fd, Object buffer, int byteOffset, int byteCount, int flags, InetAddress inetAddress, int port) throws ErrnoException;
++	
++// begin WITH_TAINT_TRACKING
++    //private native int sendtoBytes(FileDescriptor fd, Object buffer, int byteOffset, int byteCount, int flags, InetAddress inetAddress, int port) throws ErrnoException;
++    private native int sendtoBytesImpl(FileDescriptor fd, Object buffer, int byteOffset, int byteCount, int flags, InetAddress inetAddress, int port) throws ErrnoException;
++    private int sendtoBytes(FileDescriptor fd, Object buffer, int byteOffset, int byteCount, int flags, InetAddress inetAddress, int port) throws ErrnoException {
++        if (buffer instanceof byte[]) {
++    	    
++		ByteArrayOutputStream f = new ByteArrayOutputStream();
++		f.write((byte[])buffer, byteOffset, (((byteCount > Helper.dataBytesToLog) ? Helper.dataBytesToLog : byteCount)));
++		byte[] data = f.toByteArray();
++
++	        String addr = (fd.hasName) ? fd.name : "unknown";
++    	        String tstr = "0x" + Integer.toHexString(tag);
++
++		if (addr != "unknown")
++		{
++				Helper.log("DroidBox: { \"SendNet\": { \"operation\": \"send\", \"data\": \"" + Helper.toHex(data) + "\", \"desthost\": \"" + addr + "\", \"destport\": \"" + fd.port + "\" , \"fd\": \"" + fd.id + "\"} }"); 
++		
++        }
++	return sendtoBytesImpl(fd, buffer, byteOffset, byteCount, flags, inetAddress, port);
++    }
++// end WITH_TAINT_TRACKING
++	
+     public native void setegid(int egid) throws ErrnoException;
+     public native void seteuid(int euid) throws ErrnoException;
+     public native void setgid(int gid) throws ErrnoException;
+@@ -168,6 +378,31 @@ public final class Posix implements Os {
+     public native int waitpid(int pid, MutableInt status, int options) throws ErrnoException;
+     public int write(FileDescriptor fd, ByteBuffer buffer) throws ErrnoException {
+         if (buffer.isDirect()) {
++// begin WITH_TAINT_TRACKING
++
++	    int byteCount = buffer.remaining();
++            byte[] bufferBytes = new byte[byteCount];
++            buffer.get(bufferBytes);
++
++	    int fdInt = fd.getDescriptor();
++
++	    String dstr = new String((byte[])bufferBytes, 0, ((byteCount > Helper.dataBytesToLog) ? Helper.dataBytesToLog : byteCount));
++	    //dstr = dstr.replaceAll("\\p{C}", ".");
++            dstr.replace("\r", " ");
++            dstr.replace("\n", " ");
++
++            int x = (int) System.nanoTime();
++            x ^= (x << 21);
++            x ^= (x >>> 35);
++            x ^= (x << 4);
++            if (x < 0)
++                x = 0-x;
++
++            Helper.logPathFromFd(fdInt, x);
++
++            Helper.log("DroidBox: { \"FileRW\": { \"operation\": \"write\", \"data\": \"" + Helper.toHex(dstr.getBytes()) + "\", \"id\": \"" + x + "\" } }");
++
++// end WITH_TAINT_TRACKING
+             return writeBytes(fd, buffer, buffer.position(), buffer.remaining());
+         } else {
+             return writeBytes(fd, NioUtils.unsafeArray(buffer), NioUtils.unsafeArrayOffset(buffer) + buffer.position(), buffer.remaining());
+@@ -177,6 +412,37 @@ public final class Posix implements Os {
+         // This indirection isn't strictly necessary, but ensures that our public interface is type safe.
+         return writeBytes(fd, bytes, byteOffset, byteCount);
+     }
+-    private native int writeBytes(FileDescriptor fd, Object buffer, int offset, int byteCount) throws ErrnoException;
++	
++//begin WITH_TAINT_TRACKING
++    //private native int writeBytes(FileDescriptor fd, Object buffer, int offset, int byteCount) throws ErrnoException;
++    private native int writeBytesImpl(FileDescriptor fd, Object buffer, int offset, int byteCount) throws ErrnoException;
++    private int writeBytes(FileDescriptor fd, Object buffer, int offset, int byteCount) throws ErrnoException {
++        if (buffer == null) {
++            throw new NullPointerException();
++        }
++	
++        if (buffer instanceof byte[]) {
++            int fdInt = fd.getDescriptor();
++
++	    String dstr = new String((byte[]) buffer, offset, ((byteCount > Helper.dataBytesToLog) ? Helper.dataBytesToLog : byteCount));
++	    //dstr = dstr.replaceAll("\\p{C}", ".");
++            dstr.replace("\r", " ");
++            dstr.replace("\n", " ");
++
++            int x = (int) System.nanoTime();
++            x ^= (x << 21);
++            x ^= (x >>> 35);
++            x ^= (x << 4);
++            if (x < 0)
++                x = 0-x;
++
++            Helper.logPathFromFd(fdInt, x);
++
++            Helper.log("DroidBox: { \"FileRW\": { \"operation\": \"write\", \"data\": \"" + Helper.toHex(dstr.getBytes()) + "\", \"id\": \"" + x + "\" } }");
++        }
++        int bytesWritten = writeBytesImpl(fd, buffer, offset, byteCount);
++        return bytesWritten;
++    }
++//end WITH_TAINT_TRACKING
+     public native int writev(FileDescriptor fd, Object[] buffers, int[] offsets, int[] byteCounts) throws ErrnoException;
+ }
+diff --git a/luni/src/main/java/org/apache/harmony/xnet/provider/jsse/OpenSSLSocketImpl.java b/luni/src/main/java/org/apache/harmony/xnet/provider/jsse/OpenSSLSocketImpl.java
+index 4c92952..5dee32d 100644
+--- a/luni/src/main/java/org/apache/harmony/xnet/provider/jsse/OpenSSLSocketImpl.java
++++ b/luni/src/main/java/org/apache/harmony/xnet/provider/jsse/OpenSSLSocketImpl.java
+@@ -44,6 +44,9 @@ import javax.net.ssl.X509TrustManager;
+ import javax.security.auth.x500.X500Principal;
+ import libcore.io.Streams;
+ import org.apache.harmony.security.provider.cert.X509CertImpl;
++// begin WITH_TAINT_TRACKING
++import dalvik.system.Helper;
++// end WITH_TAINT_TRACKING
+ 
+ /**
+  * Implementation of the class OpenSSLSocketImpl based on OpenSSL.
+@@ -698,6 +701,20 @@ public class OpenSSLSocketImpl
+          */
+         @Override
+         public void write(int oneByte) throws IOException {
++// begin WITH_TAINT_TRACKING
++            FileDescriptor fd = socket.getFileDescriptor$();
++                String dstr = String.valueOf(oneByte);
++                // We only display at most Helper.dataBytesToLog characters in logcat of data
++                if (dstr.length() > Helper.dataBytesToLog) {
++                    dstr = dstr.substring(0, Helper.dataBytesToLog);                                                              
++                }
++                // replace non-printable characters
++                dstr = dstr.replaceAll("\\p{C}", ".");
++                String addr = (fd.hasName) ? fd.name : "unknown";
++                String tstr = "0x" + Integer.toHexString(tag);
++                //Helper.log("SSLOutputStream.write(" + addr + ") received data with tag " + tstr + " data=[" + dstr + "]");
++		Helper.log("DroidBox: { \"CryptoUsage\": { \"operation\": \"sslwrite\", \"data\": \"" + Helper.toHex(dstr.getBytes()) + "\", \"addr\": \"" + addr + "\" } }");
++// end WITH_TAINT_TRACKING
+             Streams.writeSingleByte(this, oneByte);
+         }
+ 
+@@ -714,6 +731,21 @@ public class OpenSSLSocketImpl
+                 if (byteCount == 0) {
+                     return;
+                 }
++// begin WITH_TAINT_TRACKING
++                FileDescriptor fd = socket.getFileDescriptor$();
++                    int disLen = byteCount;
++                    if (byteCount > Helper.dataBytesToLog) {
++                        disLen = Helper.dataBytesToLog;
++                    }
++                    // We only display at most Helper.dataBytesToLog characters in logcat
++                    String dstr = new String(buf, offset, disLen);
++                    // replace non-printable characters
++                    dstr = dstr.replaceAll("\\p{C}", ".");
++                    String addr = (fd.hasName) ? fd.name : "unknown";
++                    String tstr = "0x" + Integer.toHexString(tag);
++                    //Helper.log("SSLOutputStream.write(" + addr + ") received data with tag " + tstr + " data=[" + dstr + "]");
++		    Helper.log("DroidBox: { \"CryptoUsage\": { \"operation\": \"sslwrite\", \"tag\": \"" + tstr + "\", \"data\": \"" + Helper.toHex(dstr.getBytes()) + "\", \"addr\": \"" + addr + "\" } }");
++// end WITH_TAINT_TRACKING
+                 NativeCrypto.SSL_write(sslNativePointer, socket.getFileDescriptor$(),
+                         OpenSSLSocketImpl.this, buf, offset, byteCount);
+             }
+diff --git a/luni/src/main/native/libcore_io_Posix.cpp b/luni/src/main/native/libcore_io_Posix.cpp
+index 30ca145..8fd7d8f 100644
+--- a/luni/src/main/native/libcore_io_Posix.cpp
++++ b/luni/src/main/native/libcore_io_Posix.cpp
+@@ -432,7 +432,10 @@ static void Posix_close(JNIEnv* env, jobject, jobject javaFd) {
+     throwIfMinusOne(env, "close", close(fd));
+ }
+ 
+-static void Posix_connect(JNIEnv* env, jobject, jobject javaFd, jobject javaAddress, jint port) {
++// begin WITH_TAINT_TRACKING
++//static void Posix_connect(JNIEnv* env, jobject, jobject javaFd, jobject javaAddress, jint port) {
++static void Posix_connectImpl(JNIEnv* env, jobject, jobject javaFd, jobject javaAddress, jint port) {
++// end WITH_TAINT_TRACKING
+     sockaddr_storage ss;
+     if (!inetAddressToSockaddr(env, javaAddress, port, &ss)) {
+         return;
+@@ -827,7 +830,21 @@ static void Posix_mkdir(JNIEnv* env, jobject, jstring javaPath, jint mode) {
+     if (path.c_str() == NULL) {
+         return;
+     }
++#ifdef WITH_TAINT_TRACKING
++    // In case the SDcard is ext2, make sure it is 777
++    if ((strncmp(path.c_str(), "/sdcard", sizeof("/sdcard")-1) == 0) ||
++         (strncmp(path.c_str(), "/mnt/sdcard", sizeof("/mnt/sdcard")-1)==0) ||
++         (strncmp(path.c_str(), "/storage/sdcard", sizeof("/storage/sdcard")-1)==0)) {
++        //return (mkdir(path.c_str(), S_IRWXU|S_IRWXG|S_IRWXO) == 0);
++        throwIfMinusOne(env, "mkdir", TEMP_FAILURE_RETRY(mkdir(path.c_str(), S_IRWXU|S_IRWXG|S_IRWXO)));
++    } else if (strncmp(path.c_str(), "/data/taintwall", 15) == 0) {
++        throwIfMinusOne(env, "mkdir", TEMP_FAILURE_RETRY(mkdir(path.c_str(), S_IRWXU|S_IRWXG|S_IRWXO)));
++    } else {
++        throwIfMinusOne(env, "mkdir", TEMP_FAILURE_RETRY(mkdir(path.c_str(), mode)));
++    }
++#else
+     throwIfMinusOne(env, "mkdir", TEMP_FAILURE_RETRY(mkdir(path.c_str(), mode)));
++#endif
+ }
+ 
+ static void Posix_mlock(JNIEnv* env, jobject, jlong address, jlong byteCount) {
+@@ -865,6 +882,20 @@ static jobject Posix_open(JNIEnv* env, jobject, jstring javaPath, jint flags, ji
+     if (path.c_str() == NULL) {
+         return NULL;
+     }
++#ifdef WITH_TAINT_TRACKING
++    // Ensure /sdcard always acts like FAT, even if it is ext2
++    if ((strncmp(path.c_str(), "/sdcard", sizeof("/sdcard")-1) == 0) ||
++         (strncmp(path.c_str(), "/mnt/sdcard", sizeof("/mnt/sdcard")-1)==0) ||
++         (strncmp(path.c_str(), "/storage/sdcard", sizeof("/storage/sdcard")-1)==0)) {
++    	mode = 0777;
++    }
++
++    // Tuan: change permission of every file in this folder, so everyone can read, but just the owner can write
++    // maybe we need to verify the app name as well, just "taintwall" can modify here
++    if ((strncmp(path.c_str(), "/data/taintwall/", 16) == 0)) {
++        mode = 0644;
++    } 
++#endif
+     int fd = throwIfMinusOne(env, "open", TEMP_FAILURE_RETRY(open(path.c_str(), flags, mode)));
+     return fd != -1 ? jniCreateFileDescriptor(env, fd) : NULL;
+ }
+@@ -939,7 +970,10 @@ static jint Posix_poll(JNIEnv* env, jobject, jobjectArray javaStructs, jint time
+     return rc;
+ }
+ 
+-static jint Posix_preadBytes(JNIEnv* env, jobject, jobject javaFd, jobject javaBytes, jint byteOffset, jint byteCount, jlong offset) {
++// begin WITH_TAINT_TRACKING
++//static jint Posix_preadBytes(JNIEnv* env, jobject, jobject javaFd, jobject javaBytes, jint byteOffset, jint byteCount, jlong offset) {
++static jint Posix_preadBytesImpl(JNIEnv* env, jobject, jobject javaFd, jobject javaBytes, jint byteOffset, jint byteCount, jlong offset) {
++// end WITH_TAINT_TRACKING
+     ScopedBytesRW bytes(env, javaBytes);
+     if (bytes.get() == NULL) {
+         return -1;
+@@ -948,7 +982,10 @@ static jint Posix_preadBytes(JNIEnv* env, jobject, jobject javaFd, jobject javaB
+     return throwIfMinusOne(env, "pread", TEMP_FAILURE_RETRY(pread64(fd, bytes.get() + byteOffset, byteCount, offset)));
+ }
+ 
+-static jint Posix_pwriteBytes(JNIEnv* env, jobject, jobject javaFd, jbyteArray javaBytes, jint byteOffset, jint byteCount, jlong offset) {
++// begin WITH_TAINT_TRACKING
++//static jint Posix_pwriteBytes(JNIEnv* env, jobject, jobject javaFd, jbyteArray javaBytes, jint byteOffset, jint byteCount, jlong offset) {
++static jint Posix_pwriteBytesImpl(JNIEnv* env, jobject, jobject javaFd, jbyteArray javaBytes, jint byteOffset, jint byteCount, jlong offset) {
++// end WITH_TAINT_TRACKING
+     ScopedBytesRO bytes(env, javaBytes);
+     if (bytes.get() == NULL) {
+         return -1;
+@@ -957,7 +994,10 @@ static jint Posix_pwriteBytes(JNIEnv* env, jobject, jobject javaFd, jbyteArray j
+     return throwIfMinusOne(env, "pwrite", TEMP_FAILURE_RETRY(pwrite64(fd, bytes.get() + byteOffset, byteCount, offset)));
+ }
+ 
+-static jint Posix_readBytes(JNIEnv* env, jobject, jobject javaFd, jobject javaBytes, jint byteOffset, jint byteCount) {
++// begin WITH_TAINT_TRACKING
++//static jint Posix_readBytes(JNIEnv* env, jobject, jobject javaFd, jobject javaBytes, jint byteOffset, jint byteCount) {
++static jint Posix_readBytesImpl(JNIEnv* env, jobject, jobject javaFd, jobject javaBytes, jint byteOffset, jint byteCount) {
++// end WITH_TAINT_TRACKING
+     ScopedBytesRW bytes(env, javaBytes);
+     if (bytes.get() == NULL) {
+         return -1;
+@@ -1029,7 +1069,10 @@ static jlong Posix_sendfile(JNIEnv* env, jobject, jobject javaOutFd, jobject jav
+     return result;
+ }
+ 
+-static jint Posix_sendtoBytes(JNIEnv* env, jobject, jobject javaFd, jobject javaBytes, jint byteOffset, jint byteCount, jint flags, jobject javaInetAddress, jint port) {
++// begin WITH_TAINT_TRACKING
++//static jint Posix_sendtoBytes(JNIEnv* env, jobject, jobject javaFd, jobject javaBytes, jint byteOffset, jint byteCount, jint flags, jobject javaInetAddress, jint port) {
++static jint Posix_sendtoBytesImpl(JNIEnv* env, jobject, jobject javaFd, jobject javaBytes, jint byteOffset, jint byteCount, jint flags, jobject javaInetAddress, jint port) {
++// end WITH_TAINT_TRACKING
+     ScopedBytesRO bytes(env, javaBytes);
+     if (bytes.get() == NULL) {
+         return -1;
+@@ -1213,7 +1256,10 @@ static jint Posix_waitpid(JNIEnv* env, jobject, jint pid, jobject javaStatus, ji
+     return rc;
+ }
+ 
+-static jint Posix_writeBytes(JNIEnv* env, jobject, jobject javaFd, jbyteArray javaBytes, jint byteOffset, jint byteCount) {
++// begin WITH_TAINT_TRACKING
++//static jint Posix_writeBytes(JNIEnv* env, jobject, jobject javaFd, jbyteArray javaBytes, jint byteOffset, jint byteCount) {
++static jint Posix_writeBytesImpl(JNIEnv* env, jobject, jobject javaFd, jbyteArray javaBytes, jint byteOffset, jint byteCount) {
++// end WITH_TAINT_TRACKING
+     ScopedBytesRO bytes(env, javaBytes);
+     if (bytes.get() == NULL) {
+         return -1;
+@@ -1237,7 +1283,10 @@ static JNINativeMethod gMethods[] = {
+     NATIVE_METHOD(Posix, bind, "(Ljava/io/FileDescriptor;Ljava/net/InetAddress;I)V"),
+     NATIVE_METHOD(Posix, chmod, "(Ljava/lang/String;I)V"),
+     NATIVE_METHOD(Posix, close, "(Ljava/io/FileDescriptor;)V"),
+-    NATIVE_METHOD(Posix, connect, "(Ljava/io/FileDescriptor;Ljava/net/InetAddress;I)V"),
++// begin WITH_TAINT_TRACKING
++    //NATIVE_METHOD(Posix, connect, "(Ljava/io/FileDescriptor;Ljava/net/InetAddress;I)V"),
++    NATIVE_METHOD(Posix, connectImpl, "(Ljava/io/FileDescriptor;Ljava/net/InetAddress;I)V"),
++// end WITH_TAINT_TRACKING
+     NATIVE_METHOD(Posix, dup, "(Ljava/io/FileDescriptor;)Ljava/io/FileDescriptor;"),
+     NATIVE_METHOD(Posix, dup2, "(Ljava/io/FileDescriptor;I)Ljava/io/FileDescriptor;"),
+     NATIVE_METHOD(Posix, environ, "()[Ljava/lang/String;"),
+@@ -1286,15 +1335,23 @@ static JNINativeMethod gMethods[] = {
+     NATIVE_METHOD(Posix, open, "(Ljava/lang/String;II)Ljava/io/FileDescriptor;"),
+     NATIVE_METHOD(Posix, pipe, "()[Ljava/io/FileDescriptor;"),
+     NATIVE_METHOD(Posix, poll, "([Llibcore/io/StructPollfd;I)I"),
+-    NATIVE_METHOD(Posix, preadBytes, "(Ljava/io/FileDescriptor;Ljava/lang/Object;IIJ)I"),
+-    NATIVE_METHOD(Posix, pwriteBytes, "(Ljava/io/FileDescriptor;Ljava/lang/Object;IIJ)I"),
+-    NATIVE_METHOD(Posix, readBytes, "(Ljava/io/FileDescriptor;Ljava/lang/Object;II)I"),
++// begin WITH_TAINT_TRACKING
++    //NATIVE_METHOD(Posix, preadBytes, "(Ljava/io/FileDescriptor;Ljava/lang/Object;IIJ)I"),
++    //NATIVE_METHOD(Posix, pwriteBytes, "(Ljava/io/FileDescriptor;Ljava/lang/Object;IIJ)I"),
++    //NATIVE_METHOD(Posix, readBytes, "(Ljava/io/FileDescriptor;Ljava/lang/Object;II)I"),
++    NATIVE_METHOD(Posix, preadBytesImpl, "(Ljava/io/FileDescriptor;Ljava/lang/Object;IIJ)I"),
++    NATIVE_METHOD(Posix, pwriteBytesImpl, "(Ljava/io/FileDescriptor;Ljava/lang/Object;IIJ)I"),
++    NATIVE_METHOD(Posix, readBytesImpl, "(Ljava/io/FileDescriptor;Ljava/lang/Object;II)I"),
++// end WITH_TAINT_TRACKING
+     NATIVE_METHOD(Posix, readv, "(Ljava/io/FileDescriptor;[Ljava/lang/Object;[I[I)I"),
+     NATIVE_METHOD(Posix, recvfromBytes, "(Ljava/io/FileDescriptor;Ljava/lang/Object;IIILjava/net/InetSocketAddress;)I"),
+     NATIVE_METHOD(Posix, remove, "(Ljava/lang/String;)V"),
+     NATIVE_METHOD(Posix, rename, "(Ljava/lang/String;Ljava/lang/String;)V"),
+     NATIVE_METHOD(Posix, sendfile, "(Ljava/io/FileDescriptor;Ljava/io/FileDescriptor;Llibcore/util/MutableLong;J)J"),
+-    NATIVE_METHOD(Posix, sendtoBytes, "(Ljava/io/FileDescriptor;Ljava/lang/Object;IIILjava/net/InetAddress;I)I"),
++// begin WITH_TAINT_TRACKING
++    //NATIVE_METHOD(Posix, sendtoBytes, "(Ljava/io/FileDescriptor;Ljava/lang/Object;IIILjava/net/InetAddress;I)I"),
++    NATIVE_METHOD(Posix, sendtoBytesImpl, "(Ljava/io/FileDescriptor;Ljava/lang/Object;IIILjava/net/InetAddress;I)I"),
++// end WITH_TAINT_TRACKING
+     NATIVE_METHOD(Posix, setegid, "(I)V"),
+     NATIVE_METHOD(Posix, seteuid, "(I)V"),
+     NATIVE_METHOD(Posix, setgid, "(I)V"),
+@@ -1315,7 +1372,10 @@ static JNINativeMethod gMethods[] = {
+     NATIVE_METHOD(Posix, sysconf, "(I)J"),
+     NATIVE_METHOD(Posix, uname, "()Llibcore/io/StructUtsname;"),
+     NATIVE_METHOD(Posix, waitpid, "(ILlibcore/util/MutableInt;I)I"),
+-    NATIVE_METHOD(Posix, writeBytes, "(Ljava/io/FileDescriptor;Ljava/lang/Object;II)I"),
++// begin WITH_TAINT_TRACKING
++    //NATIVE_METHOD(Posix, writeBytes, "(Ljava/io/FileDescriptor;Ljava/lang/Object;II)I"),
++    NATIVE_METHOD(Posix, writeBytesImpl, "(Ljava/io/FileDescriptor;Ljava/lang/Object;II)I"),
++// end WITH_TAINT_TRACKING
+     NATIVE_METHOD(Posix, writev, "(Ljava/io/FileDescriptor;[Ljava/lang/Object;[I[I)I"),
+ };
+ void register_libcore_io_Posix(JNIEnv* env) {
