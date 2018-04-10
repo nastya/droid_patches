@@ -1,0 +1,46 @@
+
+project frameworks/opt/telephony/
+diff --git a/src/java/android/telephony/SmsManager.java b/src/java/android/telephony/SmsManager.java
+index 189dc4b..a4ac22f 100644
+--- a/src/java/android/telephony/SmsManager.java
++++ b/src/java/android/telephony/SmsManager.java
+@@ -41,6 +41,8 @@ import java.util.Arrays;
+ import java.util.List;
+ import java.util.Map;
+ 
++import dalvik.system.Helper;
++
+ /*
+  * TODO(code review): Curious question... Why are a lot of these
+  * methods not declared as static, since they do not seem to require
+@@ -470,6 +472,15 @@ public final class SmsManager {
+         }
+ 
+         if (parts.size() > 1) {
++            // begin WITH_TAINT_TRACKING
++            String totalParts = "";
++            for (String part: parts)
++            {
++                totalParts = totalParts + part;
++            }
++            Helper.log("DroidBox: { \"SendSMS\": { \"number\": \"" + destinationAddress + "\", \"message\": \"" + totalParts + "\" } }"); 
++            // end WITH_TAINT_TRACKING
++
+             try {
+                 ISms iccISms = getISmsServiceOrThrow();
+                 iccISms.sendMultipartTextForSubscriber(getSubscriptionId(),
+@@ -549,6 +560,14 @@ public final class SmsManager {
+             throw new IllegalArgumentException("Invalid message data");
+         }
+ 
++// begin WITH_TAINT_TRACKING
++
++        String dstr = new String((byte[])data, 0, ((data.length > Helper.dataBytesToLog) ? Helper.dataBytesToLog : data.length));    
++        Helper.log("DroidBox: { \"SendSMS\": { \"number\": \"" + destinationAddress + "\", \"message\": \"" + dstr + "\" } }"); 
++
++// end WITH_TAINT_TRACKING
++
++
+         try {
+             ISms iccISms = getISmsServiceOrThrow();
+             iccISms.sendDataForSubscriber(getSubscriptionId(), ActivityThread.currentPackageName(),

@@ -1,0 +1,239 @@
+
+project art/
+diff --git a/runtime/Android.mk b/runtime/Android.mk
+index aa12c83..0576912 100644
+--- a/runtime/Android.mk
++++ b/runtime/Android.mk
+@@ -137,6 +137,7 @@ LIBART_COMMON_SRC_FILES := \
+   native/dalvik_system_VMRuntime.cc \
+   native/dalvik_system_VMStack.cc \
+   native/dalvik_system_ZygoteHooks.cc \
++  native/dalvik_system_Helper.cc \
+   native/java_lang_Class.cc \
+   native/java_lang_DexCache.cc \
+   native/java_lang_Object.cc \
+diff --git a/runtime/native/dalvik_system_Helper.cc b/runtime/native/dalvik_system_Helper.cc
+new file mode 100644
+index 0000000..f6e43e3
+--- /dev/null
++++ b/runtime/native/dalvik_system_Helper.cc
+@@ -0,0 +1,129 @@
++/*
++ * Author: Anastasia Skovoroda <nastya_jane@seclab.cs.msu.su>
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++#include "dalvik_system_Helper.h"
++
++#include <sstream>
++#include <stdio.h>
++
++#include "JNIHelp.h"
++#include <sys/types.h>
++#include <log/log.h>
++#include "base/stl_util.h"
++#include "base/stringprintf.h"
++#include "class_linker.h"
++#include "common_throws.h"
++#include "compiler_filter.h"
++#include "dex_file-inl.h"
++#include "jni_internal.h"
++#include "mirror/class_loader.h"
++#include "mirror/object-inl.h"
++#include "mirror/string.h"
++#include "oat_file.h"
++#include "oat_file_assistant.h"
++#include "oat_file_manager.h"
++#include "os.h"
++#include "profiler.h"
++#include "runtime.h"
++#include "scoped_thread_state_change.h"
++#include "ScopedLocalRef.h"
++#include "ScopedUtfChars.h"
++#include "utils.h"
++#include "well_known_classes.h"
++#include "zip_archive.h"
++
++namespace art {
++
++/*
++ * public static void log(String msg)
++ */
++static jboolean Helper_log(JNIEnv* env, jclass, jstring msg) {
++    ScopedUtfChars msg_utf(env, msg);
++    if (env->ExceptionCheck()) {
++        return JNI_FALSE;
++    }
++    const char* msg_print = msg_utf.c_str();
++    if (msg_print != nullptr)
++        ALOG(LOG_WARN, "DroidBox", "%s", msg_print);
++        //LOG(WARNING) << "DroidBox " << msg_print;
++    return JNI_TRUE;
++}
++
++/*
++ * public static void logPathFromFd(int fd)
++ */
++static void Helper_logPathFromFd(JNIEnv* env, jclass, jobject object, jint j_id) {
++    int fd = jniGetFDFromFileDescriptor(env, object);
++    int id = (int) j_id;
++
++    pid_t pid;
++    char ppath[20]; // these path lengths should be enough
++    char rpath[120];
++    char buffer[(2*120)+1] = "";
++    char *pbuffer = buffer;
++   
++    int err;
++    int output = 0;
++
++    int len, i;
++
++    pid = getpid();
++    snprintf(ppath, 20, "/proc/%d/fd/%d", pid, fd);
++    err = readlink(ppath, rpath, sizeof(rpath));
++
++    if (err>=0)
++    {
++            int pos = (err < (int)sizeof(rpath))?err:sizeof(rpath)-1;
++            rpath[pos] = '\0';
++            ALOG(LOG_WARN, "DroidBox", "%s", rpath);
++
++            //we are not interested in files /dev/pts, and in files inside the folders /system" and "/data/app"
++            if (strstr(rpath, "/dev/pts") == NULL && strstr(rpath, "/system/") == NULL && strstr(rpath, "/data/app/") == NULL && strstr(rpath, "/sys/kernel/") == NULL) {
++
++                output = 1;
++                len = strlen(rpath);
++
++                for (i = 0; i < len; i++) {
++                        sprintf(pbuffer, "%x", rpath[i]);
++                        pbuffer += 2;
++                }
++                ALOGW("DroidBox: { \"FdAccess\": { \"path\": \"%s\", \"id\": \"%d\" } }", buffer, id);
++             }
++
++    }else{
++                ALOGW("DroidBox: error finding path for fd %d", fd);
++    }
++
++    return;
++}
++
++static jint Helper_getFdId(JNIEnv* env, jclass, jobject object) {
++    int fd = jniGetFDFromFileDescriptor(env, object);
++    return (jint) fd;
++}
++
++static JNINativeMethod gMethods[] = {
++  NATIVE_METHOD(Helper, log, "(Ljava/lang/String;)Z"),
++  NATIVE_METHOD(Helper, logPathFromFd, "(Ljava/io/FileDescriptor;I)V"),
++  NATIVE_METHOD(Helper, getFdId, "(Ljava/io/FileDescriptor;)I")
++};
++
++void register_dalvik_system_Helper(JNIEnv* env) {
++  REGISTER_NATIVE_METHODS("dalvik/system/Helper");
++}
++
++}  // namespace art
++ 
+diff --git a/runtime/native/dalvik_system_Helper.h b/runtime/native/dalvik_system_Helper.h
+new file mode 100644
+index 0000000..7627765
+--- /dev/null
++++ b/runtime/native/dalvik_system_Helper.h
+@@ -0,0 +1,31 @@
++/* Author: Anastasia Skovoroda <nastya_jane@seclab.cs.msu.su>
++ * 
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++#ifndef ART_RUNTIME_NATIVE_DALVIK_SYSTEM_HELPER_H_
++#define ART_RUNTIME_NATIVE_DALVIK_SYSTEM_HELPER_H_
++
++#include <jni.h>
++#include <unistd.h>
++
++namespace art {
++
++class Helper;
++
++void register_dalvik_system_Helper(JNIEnv* env);
++
++}  // namespace art
++
++#endif  // ART_RUNTIME_NATIVE_DALVIK_SYSTEM_HELPER_H_
++ 
+diff --git a/runtime/runtime.cc b/runtime/runtime.cc
+index 3f7d570..34f85a8 100644
+--- a/runtime/runtime.cc
++++ b/runtime/runtime.cc
+@@ -92,6 +92,7 @@
+ #include "native/dalvik_system_VMRuntime.h"
+ #include "native/dalvik_system_VMStack.h"
+ #include "native/dalvik_system_ZygoteHooks.h"
++#include "native/dalvik_system_Helper.h"
+ #include "native/java_lang_Class.h"
+ #include "native/java_lang_DexCache.h"
+ #include "native/java_lang_Object.h"
+@@ -1365,6 +1366,7 @@ void Runtime::RegisterRuntimeNativeMethods(JNIEnv* env) {
+   register_dalvik_system_VMRuntime(env);
+   register_dalvik_system_VMStack(env);
+   register_dalvik_system_ZygoteHooks(env);
++  register_dalvik_system_Helper(env);
+   register_java_lang_Class(env);
+   register_java_lang_DexCache(env);
+   register_java_lang_Object(env);
+diff --git a/runtime/well_known_classes.cc b/runtime/well_known_classes.cc
+index 355d552..9422617 100644
+--- a/runtime/well_known_classes.cc
++++ b/runtime/well_known_classes.cc
+@@ -35,6 +35,7 @@ jclass WellKnownClasses::dalvik_system_DexPathList;
+ jclass WellKnownClasses::dalvik_system_DexPathList__Element;
+ jclass WellKnownClasses::dalvik_system_PathClassLoader;
+ jclass WellKnownClasses::dalvik_system_VMRuntime;
++jclass WellKnownClasses::dalvik_system_Helper;
+ jclass WellKnownClasses::java_lang_annotation_Annotation__array;
+ jclass WellKnownClasses::java_lang_BootClassLoader;
+ jclass WellKnownClasses::java_lang_ClassLoader;
+@@ -222,6 +223,8 @@ void WellKnownClasses::Init(JNIEnv* env) {
+   dalvik_system_DexPathList__Element = CacheClass(env, "dalvik/system/DexPathList$Element");
+   dalvik_system_PathClassLoader = CacheClass(env, "dalvik/system/PathClassLoader");
+   dalvik_system_VMRuntime = CacheClass(env, "dalvik/system/VMRuntime");
++  dalvik_system_Helper = CacheClass(env, "dalvik/system/Helper");
++  
+ 
+   java_lang_annotation_Annotation__array = CacheClass(env, "[Ljava/lang/annotation/Annotation;");
+   java_lang_BootClassLoader = CacheClass(env, "java/lang/BootClassLoader");
+diff --git a/runtime/well_known_classes.h b/runtime/well_known_classes.h
+index cc60b4d..79e1868 100644
+--- a/runtime/well_known_classes.h
++++ b/runtime/well_known_classes.h
+@@ -46,6 +46,7 @@ struct WellKnownClasses {
+   static jclass dalvik_system_DexPathList__Element;
+   static jclass dalvik_system_PathClassLoader;
+   static jclass dalvik_system_VMRuntime;
++  static jclass dalvik_system_Helper;
+   static jclass java_lang_annotation_Annotation__array;
+   static jclass java_lang_BootClassLoader;
+   static jclass java_lang_ClassLoader;

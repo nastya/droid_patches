@@ -1,0 +1,162 @@
+
+project external/conscrypt/
+diff --git a/src/main/java/org/conscrypt/OpenSSLSocketImpl.java b/src/main/java/org/conscrypt/OpenSSLSocketImpl.java
+index 9a49ec2..d7471f5 100644
+--- a/src/main/java/org/conscrypt/OpenSSLSocketImpl.java
++++ b/src/main/java/org/conscrypt/OpenSSLSocketImpl.java
+@@ -21,6 +21,9 @@ import org.conscrypt.ct.CTVerifier;
+ import org.conscrypt.ct.CTVerificationResult;
+ import dalvik.system.BlockGuard;
+ import dalvik.system.CloseGuard;
++// begin WITH_TAINT_TRACKING
++import dalvik.system.Helper;
++// end WITH_TAINT_TRACKING
+ import java.io.FileDescriptor;
+ import java.io.IOException;
+ import java.io.InputStream;
+@@ -50,6 +53,7 @@ import javax.net.ssl.X509KeyManager;
+ import javax.net.ssl.X509TrustManager;
+ import javax.security.auth.x500.X500Principal;
+ 
++
+ /**
+  * Implementation of the class OpenSSLSocketImpl based on OpenSSL.
+  * <p>
+@@ -811,6 +815,19 @@ public class OpenSSLSocketImpl
+             if (byteCount == 0) {
+                 return;
+             }
++// begin WITH_TAINT_TRACKING
++            int disLen = byteCount;
++            if (byteCount > Helper.dataBytesToLog) {
++                disLen = Helper.dataBytesToLog;
++            }
++            // We only display at most Helper.dataBytesToLog characters in logcat
++            String dstr = new String(buf, offset, disLen);
++            // replace non-printable characters
++            dstr = dstr.replaceAll("\\p{C}", ".");
++            String addr = socket.getInetAddress().getHostAddress();
++            Helper.log("DroidBox: { \"CryptoUsage\": { \"operation\": \"sslwrite\"" + "\", \"data\": \"" + Helper.toHex(dstr.getBytes()) + "\", \"addr\": \"" + addr + "\" } }");
++// end WITH_TAINT_TRACKING 
++
+ 
+             synchronized (writeLock) {
+                 synchronized (stateLock) {
+diff --git a/src/openjdk/java/dalvik/system/Helper.java b/src/openjdk/java/dalvik/system/Helper.java
+new file mode 100644
+index 0000000..e9eea37
+--- /dev/null
++++ b/src/openjdk/java/dalvik/system/Helper.java
+@@ -0,0 +1,54 @@
++/*
++ * Copyright (c) 2010 The Pennsylvania State University
++ * Systems and Internet Infrastructure Security Laboratory
++ *
++ * Author: William Enck <enck@cse.psu.edu>
++ * Modified: Anastasia Skovoroda <nastya_jane@seclab.cs.msu.su>
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package dalvik.system;
++
++import java.lang.reflect.Method;
++
++import java.nio.ByteBuffer;
++import java.io.FileDescriptor;
++
++public final class Helper {
++    // how many bytes of tainted network output data to print to log?
++    public static final int dataBytesToLog = 100;
++
++    public static String toHex(byte[] buf) {
++        return new String();
++    }
++    native public static boolean log(String msg);
++    native public static void logPathFromFd(FileDescriptor fd, int id);
++    native public static int getFdId(FileDescriptor fd);
++
++    /*public static boolean log(String msg) {
++        return false;
++    }
++
++    public static void logPathFromFd(FileDescriptor fd, int id) {
++        return new String();
++    }
++    public static int getFdId(FileDescriptor fd) {
++        return 0;
++    }*/
++
++}
++
++ 
++ 
++ 
+diff --git a/src/stub/java/dalvik/system/Helper.java b/src/stub/java/dalvik/system/Helper.java
+new file mode 100644
+index 0000000..87900e5
+--- /dev/null
++++ b/src/stub/java/dalvik/system/Helper.java
+@@ -0,0 +1,52 @@
++/*
++ * Copyright (c) 2010 The Pennsylvania State University
++ * Systems and Internet Infrastructure Security Laboratory
++ *
++ * Author: William Enck <enck@cse.psu.edu>
++ * Modified: Anastasia Skovoroda <nastya_jane@seclab.cs.msu.su>
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package dalvik.system;
++
++import java.nio.ByteBuffer;
++import java.io.FileDescriptor;
++
++import java.lang.reflect.Method;
++public final class Helper {
++    // how many bytes of tainted network output data to print to log?
++    public static final int dataBytesToLog = 100;
++
++    public static String toHex(byte[] buf) {
++        throw new UnsupportedOperationException("Stub!");
++    }
++    native public static boolean log(String msg);
++    native public static void logPathFromFd(FileDescriptor fd, int id);
++    native public static int getFdId(FileDescriptor fd);
++
++
++/*    public static boolean log(String msg) {
++        throw new UnsupportedOperationException("Stub!");
++    }
++
++    public static void logPathFromFd(FileDescriptor fd, int id) {
++        throw new UnsupportedOperationException("Stub!");
++    }
++    public static int getFdId(FileDescriptor fd) {
++        throw new UnsupportedOperationException("Stub!");
++    }*/
++}
++
++ 
++ 
