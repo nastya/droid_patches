@@ -1,5 +1,24 @@
 
 project frameworks/base/
+diff --git a/api/current.txt b/api/current.txt
+index bc97e81..056a295 100644
+--- a/api/current.txt
++++ b/api/current.txt
+@@ -29347,6 +29347,14 @@ package dalvik.system {
+     method public static dalvik.system.DexFile loadDex(java.lang.String, java.lang.String, int) throws java.io.IOException;
+   }
+ 
++  public final class Helper {
++    ctor public Helper();
++    method public static void log(java.lang.String);
++    method public static void logPathFromFd(int, int);
++    method public static java.lang.String toHex(byte[]);
++    field public static final int dataBytesToLog = 100; // 0x64
++  }
++
+   public class PathClassLoader extends dalvik.system.BaseDexClassLoader {
+     ctor public PathClassLoader(java.lang.String, java.lang.ClassLoader);
+     ctor public PathClassLoader(java.lang.String, java.lang.String, java.lang.ClassLoader);
 diff --git a/core/java/android/app/Activity.java b/core/java/android/app/Activity.java
 index f20fd33..39cd5e2 100644
 --- a/core/java/android/app/Activity.java

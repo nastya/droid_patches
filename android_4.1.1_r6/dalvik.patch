@@ -22,27 +22,37 @@ index 4aa054d..f317fe5 100644
  # TODO: this is the wrong test, but what's the right one?
  ifeq ($(dvm_arch),arm)
 diff --git a/vm/native/InternalNative.cpp b/vm/native/InternalNative.cpp
-index 0d06ea7..933b194 100644
+index 0d06ea7..01b40a3 100644
 --- a/vm/native/InternalNative.cpp
 +++ b/vm/native/InternalNative.cpp
-@@ -53,6 +53,9 @@ static DalvikNativeClass gDvmNativeMethodSet[] = {
+@@ -53,6 +53,7 @@ static DalvikNativeClass gDvmNativeMethodSet[] = {
      { "Ldalvik/system/VMRuntime;",        dvm_dalvik_system_VMRuntime, 0 },
      { "Ldalvik/system/Zygote;",           dvm_dalvik_system_Zygote, 0 },
      { "Ldalvik/system/VMStack;",          dvm_dalvik_system_VMStack, 0 },
-+#ifdef WITH_TAINT_TRACKING
-+    { "Ldalvik/system/Taint;",            dvm_dalvik_system_Taint, 0 },
-+#endif
++    { "Ldalvik/system/Helper;",           dvm_dalvik_system_Helper, 0 },
      { "Lorg/apache/harmony/dalvik/ddmc/DdmServer;",
              dvm_org_apache_harmony_dalvik_ddmc_DdmServer, 0 },
      { "Lorg/apache/harmony/dalvik/ddmc/DdmVmInternal;",
-diff --git a/vm/native/dalvik_system_Helper.cc b/vm/native/dalvik_system_Helper.cc
+diff --git a/vm/native/InternalNativePriv.h b/vm/native/InternalNativePriv.h
+index 0925a61..5111e34 100644
+--- a/vm/native/InternalNativePriv.h
++++ b/vm/native/InternalNativePriv.h
+@@ -107,6 +107,7 @@ extern const DalvikNativeMethod dvm_dalvik_system_DexFile[];
+ extern const DalvikNativeMethod dvm_dalvik_system_VMRuntime[];
+ extern const DalvikNativeMethod dvm_dalvik_system_Zygote[];
+ extern const DalvikNativeMethod dvm_dalvik_system_VMStack[];
++extern const DalvikNativeMethod dvm_dalvik_system_Helper[];
+ extern const DalvikNativeMethod dvm_org_apache_harmony_dalvik_ddmc_DdmServer[];
+ extern const DalvikNativeMethod dvm_org_apache_harmony_dalvik_ddmc_DdmVmInternal[];
+ extern const DalvikNativeMethod dvm_org_apache_harmony_dalvik_NativeTestTarget[];
+diff --git a/vm/native/dalvik_system_Helper.cpp b/vm/native/dalvik_system_Helper.cpp
 new file mode 100644
-index 0000000..774a97f
+index 0000000..ab2b8e7
 --- /dev/null
-+++ b/vm/native/dalvik_system_Helper.cc
-@@ -0,0 +1,118 @@
++++ b/vm/native/dalvik_system_Helper.cpp
+@@ -0,0 +1,113 @@
 +/*
-+ * Author: Anastasia Skovoroda <nastya_jane@seclab.cs.msu.su>
++ * Modified by: Anastasia Skovoroda <nastya_jane@seclab.cs.msu.su>
 + *
 + * Licensed under the Apache License, Version 2.0 (the "License");
 + * you may not use this file except in compliance with the License.
@@ -57,10 +67,8 @@ index 0000000..774a97f
 + * limitations under the License.
 + */
 +
-+#include "dalvik_system_Helper.h"
-+
++#include "Dalvik.h"
 +#include "native/InternalNativePriv.h"
-+#include "attr/xattr.h"
 +
 +#include <errno.h>
 +
@@ -110,7 +118,6 @@ index 0000000..774a97f
 +    char *pbuffer = buffer;
 +   
 +    int err;
-+    int output = 0;
 +
 +    int len, i;
 +
@@ -120,13 +127,12 @@ index 0000000..774a97f
 +
 +    if (err>=0)
 +    {
-+            int pos = (err < sizeof(rpath))?err:sizeof(rpath)-1;
++            int pos = (err < (int)sizeof(rpath))?err:sizeof(rpath)-1;
 +            rpath[pos] = '\0';
 +
 +            //we are not interested in files /dev/pts, and in files inside the folders /system" and "/data/app"
 +            if (strstr(rpath, "/dev/pts") == NULL && strstr(rpath, "/system/") == NULL && strstr(rpath, "/data/app/") == NULL && strstr(rpath, "/sys/kernel/") == NULL) {
 +
-+                output = 1;
 +                len = strlen(rpath);
 +
 +                for (i = 0; i < len; i++) {
@@ -142,7 +148,6 @@ index 0000000..774a97f
 +    }
 +
 +    RETURN_VOID();
-+    //RETURN_INT(output);
 +}
 +
 +/*static jint Dalvik_dalvik_system_Helper_getFdId(JNIEnv* env, jclass, jobject object) {

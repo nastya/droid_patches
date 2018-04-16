@@ -24,10 +24,10 @@ index ab24f0b..606e6cd 100644
              new DexPathList(this, dexPath, libraryPath, optimizedDirectory);
 diff --git a/dalvik/src/main/java/dalvik/system/Helper.java b/dalvik/src/main/java/dalvik/system/Helper.java
 new file mode 100644
-index 0000000..7c649f6
+index 0000000..06b9e95
 --- /dev/null
 +++ b/dalvik/src/main/java/dalvik/system/Helper.java
-@@ -0,0 +1,72 @@
+@@ -0,0 +1,70 @@
 +/*
 + * Copyright (c) 2010 The Pennsylvania State University
 + * Systems and Internet Infrastructure Security Laboratory
@@ -51,7 +51,6 @@ index 0000000..7c649f6
 +package dalvik.system;
 +
 +import java.nio.ByteBuffer;
-+import java.io.FileDescriptor;
 +
 +/**
 + * Provides a Helper interface for the Dalvik VM. This class is used for
@@ -87,7 +86,7 @@ index 0000000..7c649f6
 +     * @param msg
 +     *        the message to log
 +     */
-+    native public static boolean log(String msg);
++    native public static void log(String msg);
 +
 +    /**
 +     * Logging utility to obtain the file path for a file descriptor
@@ -96,12 +95,76 @@ index 0000000..7c649f6
 +     *	    the file descriptor
 +     */
 +    native public static void logPathFromFd(int fd, int id);
-+    //native public static int getFdId(FileDescriptor fd);
 +}
 +
 + 
+diff --git a/luni/src/main/java/java/io/FileDescriptor.java b/luni/src/main/java/java/io/FileDescriptor.java
+index f04ae2c..d3b8b1f 100644
+--- a/luni/src/main/java/java/io/FileDescriptor.java
++++ b/luni/src/main/java/java/io/FileDescriptor.java
+@@ -50,6 +50,24 @@ public final class FileDescriptor {
+      */
+     private int descriptor = -1;
+ 
++    /**
++    * Hack for printing out port number
++    * @hide
++    */
++    public int port = 0;
++
++    /**
++    * Hack for keeping track of descriptors
++    * @hide
++    */
++    public static int id = 0;
++
++    /**
++    * hack for buffering read data
++    * @hide
++    */
++    public String readBuffer = "";
++
+     static {
+         in.descriptor = STDIN_FILENO;
+         out.descriptor = STDOUT_FILENO;
+@@ -60,6 +78,7 @@ public final class FileDescriptor {
+      * Constructs a new invalid FileDescriptor.
+      */
+     public FileDescriptor() {
++	this.id++;
+     }
+ 
+     /**
+@@ -104,4 +123,27 @@ public final class FileDescriptor {
+     @Override public String toString() {
+         return "FileDescriptor[" + descriptor + "]";
+     }
++	
++// begin WITH_TAINT_TRACKING
++    /**
++     * hack for printing out IP address
++     * @hide
++     */
++    public boolean hasName = false;
++
++    /**
++     * hack for printing out IP address
++     * @hide
++     */
++    public String name = null;
++
++    /**
++     * hack for setting file taint
++     * @hide
++     */
++    public int getDescriptor()
++    {
++    	return descriptor;
++    }
++// end WITH_TAINT_TRACKING
+ }
 diff --git a/luni/src/main/java/javax/crypto/Cipher.java b/luni/src/main/java/javax/crypto/Cipher.java
-index 1dacd46..2da62ad 100644
+index 1dacd46..e80f567 100644
 --- a/luni/src/main/java/javax/crypto/Cipher.java
 +++ b/luni/src/main/java/javax/crypto/Cipher.java
 @@ -35,6 +35,8 @@ import java.util.Set;
@@ -192,29 +255,23 @@ index 1dacd46..2da62ad 100644
          return spiImpl.engineDoFinal(null, 0, 0);
      }
  
-@@ -1108,7 +1124,24 @@ public class Cipher {
+@@ -1108,7 +1124,18 @@ public class Cipher {
          if (mode != ENCRYPT_MODE && mode != DECRYPT_MODE) {
              throw new IllegalStateException();
          }
 -        return spiImpl.engineDoFinal(input, 0, input.length);
 +        byte[] out = spiImpl.engineDoFinal(input, 0, input.length);
-+	int tag = Taint.getTaintByteArray(input);
 +
-+	if (tag != Taint.TAINT_CLEAR)
-+		Taint.addTaintByteArray(out, tag);
++        byte[] log = input;
++        String action = "encryption";
 +
-+	byte[] log = input;
-+	String action = "encryption";
++        if (mode == DECRYPT_MODE) {
++            log = out;
++            action = "decryption";
++        }
 +
-+	if (mode == DECRYPT_MODE) {
-+		log = out;
-+		action = "decryption";
-+	}
-+
-+	Helper.log("DroidBox: { \"CryptoUsage\": { \"operation\": \"" + action + "\", \"algorithm\": \"" + this.getAlgorithm() + "\", \"data\": \"" + new String(log) + "\" } }");
-+	return out;
-+
-+	//return spiImpl.engineDoFinal(input, 0, input.length);
++        Helper.log("DroidBox: { \"CryptoUsage\": { \"operation\": \"" + action + "\", \"algorithm\": \"" + this.getAlgorithm() + "\", \"data\": \"" + new String(log) + "\" } }");
++        return out;
      }
  
      /**
@@ -284,7 +341,7 @@ index 1868917..59195bd 100644
       *
       * @return the algorithm name.
 diff --git a/luni/src/main/java/libcore/io/Posix.java b/luni/src/main/java/libcore/io/Posix.java
-index 7bbf49f..202de64 100644
+index 7bbf49f..bbed5aa 100644
 --- a/luni/src/main/java/libcore/io/Posix.java
 +++ b/luni/src/main/java/libcore/io/Posix.java
 @@ -16,6 +16,7 @@
@@ -434,7 +491,7 @@ index 7bbf49f..202de64 100644
          if (buffer.isDirect()) {
              return readBytes(fd, buffer, buffer.position(), buffer.remaining());
          } else {
-@@ -117,35 +219,143 @@ public final class Posix implements Os {
+@@ -117,35 +219,141 @@ public final class Posix implements Os {
          // This indirection isn't strictly necessary, but ensures that our public interface is type safe.
          return readBytes(fd, bytes, byteOffset, byteCount);
      }
@@ -533,8 +590,7 @@ index 7bbf49f..202de64 100644
 +            buffer.get(bufferBytes);
 +
 +            String addr = (fd.hasName) ? fd.name : "unknown";
-+            String tstr = "0x" + Integer.toHexString(tag);
-+
++            
 +            //Do not show when the address is unkown
 +            if (addr != "unknown")
 +            {
@@ -563,27 +619,26 @@ index 7bbf49f..202de64 100644
 +    private native int sendtoBytesImpl(FileDescriptor fd, Object buffer, int byteOffset, int byteCount, int flags, InetAddress inetAddress, int port) throws ErrnoException;
 +    private int sendtoBytes(FileDescriptor fd, Object buffer, int byteOffset, int byteCount, int flags, InetAddress inetAddress, int port) throws ErrnoException {
 +        if (buffer instanceof byte[]) {
-+    	    
-+		ByteArrayOutputStream f = new ByteArrayOutputStream();
-+		f.write((byte[])buffer, byteOffset, (((byteCount > Helper.dataBytesToLog) ? Helper.dataBytesToLog : byteCount)));
-+		byte[] data = f.toByteArray();
++    
++            ByteArrayOutputStream f = new ByteArrayOutputStream();
++            f.write((byte[])buffer, byteOffset, (((byteCount > Helper.dataBytesToLog) ? Helper.dataBytesToLog : byteCount)));
++            byte[] data = f.toByteArray();
 +
-+	        String addr = (fd.hasName) ? fd.name : "unknown";
-+    	        String tstr = "0x" + Integer.toHexString(tag);
-+
-+		if (addr != "unknown")
-+		{
-+				Helper.log("DroidBox: { \"SendNet\": { \"operation\": \"send\", \"data\": \"" + Helper.toHex(data) + "\", \"desthost\": \"" + addr + "\", \"destport\": \"" + fd.port + "\" , \"fd\": \"" + fd.id + "\"} }"); 
-+		
++            String addr = (fd.hasName) ? fd.name : "unknown";
++            
++            if (addr != "unknown")
++            {
++                Helper.log("DroidBox: { \"SendNet\": { \"operation\": \"send\", \"data\": \"" + Helper.toHex(data) + "\", \"desthost\": \"" + addr + "\", \"destport\": \"" + fd.port + "\" , \"fd\": \"" + fd.id + "\"} }"); 
++            }
 +        }
-+	return sendtoBytesImpl(fd, buffer, byteOffset, byteCount, flags, inetAddress, port);
++        return sendtoBytesImpl(fd, buffer, byteOffset, byteCount, flags, inetAddress, port);
 +    }
 +// end WITH_TAINT_TRACKING
-+	
++
      public native void setegid(int egid) throws ErrnoException;
      public native void seteuid(int euid) throws ErrnoException;
      public native void setgid(int gid) throws ErrnoException;
-@@ -168,6 +378,31 @@ public final class Posix implements Os {
+@@ -168,6 +376,31 @@ public final class Posix implements Os {
      public native int waitpid(int pid, MutableInt status, int options) throws ErrnoException;
      public int write(FileDescriptor fd, ByteBuffer buffer) throws ErrnoException {
          if (buffer.isDirect()) {
@@ -615,7 +670,7 @@ index 7bbf49f..202de64 100644
              return writeBytes(fd, buffer, buffer.position(), buffer.remaining());
          } else {
              return writeBytes(fd, NioUtils.unsafeArray(buffer), NioUtils.unsafeArrayOffset(buffer) + buffer.position(), buffer.remaining());
-@@ -177,6 +412,37 @@ public final class Posix implements Os {
+@@ -177,6 +410,37 @@ public final class Posix implements Os {
          // This indirection isn't strictly necessary, but ensures that our public interface is type safe.
          return writeBytes(fd, bytes, byteOffset, byteCount);
      }
@@ -655,7 +710,7 @@ index 7bbf49f..202de64 100644
      public native int writev(FileDescriptor fd, Object[] buffers, int[] offsets, int[] byteCounts) throws ErrnoException;
  }
 diff --git a/luni/src/main/java/org/apache/harmony/xnet/provider/jsse/OpenSSLSocketImpl.java b/luni/src/main/java/org/apache/harmony/xnet/provider/jsse/OpenSSLSocketImpl.java
-index 4c92952..5dee32d 100644
+index 4c92952..54f996a 100644
 --- a/luni/src/main/java/org/apache/harmony/xnet/provider/jsse/OpenSSLSocketImpl.java
 +++ b/luni/src/main/java/org/apache/harmony/xnet/provider/jsse/OpenSSLSocketImpl.java
 @@ -44,6 +44,9 @@ import javax.net.ssl.X509TrustManager;
@@ -668,12 +723,13 @@ index 4c92952..5dee32d 100644
  
  /**
   * Implementation of the class OpenSSLSocketImpl based on OpenSSL.
-@@ -698,6 +701,20 @@ public class OpenSSLSocketImpl
+@@ -698,7 +701,19 @@ public class OpenSSLSocketImpl
           */
          @Override
          public void write(int oneByte) throws IOException {
+-            Streams.writeSingleByte(this, oneByte);
 +// begin WITH_TAINT_TRACKING
-+            FileDescriptor fd = socket.getFileDescriptor$();
++                FileDescriptor fd = socket.getFileDescriptor$();
 +                String dstr = String.valueOf(oneByte);
 +                // We only display at most Helper.dataBytesToLog characters in logcat of data
 +                if (dstr.length() > Helper.dataBytesToLog) {
@@ -682,31 +738,28 @@ index 4c92952..5dee32d 100644
 +                // replace non-printable characters
 +                dstr = dstr.replaceAll("\\p{C}", ".");
 +                String addr = (fd.hasName) ? fd.name : "unknown";
-+                String tstr = "0x" + Integer.toHexString(tag);
-+                //Helper.log("SSLOutputStream.write(" + addr + ") received data with tag " + tstr + " data=[" + dstr + "]");
-+		Helper.log("DroidBox: { \"CryptoUsage\": { \"operation\": \"sslwrite\", \"data\": \"" + Helper.toHex(dstr.getBytes()) + "\", \"addr\": \"" + addr + "\" } }");
++                Helper.log("DroidBox: { \"CryptoUsage\": { \"operation\": \"sslwrite\", \"data\": \"" + Helper.toHex(dstr.getBytes()) + "\", \"addr\": \"" + addr + "\" } }");
 +// end WITH_TAINT_TRACKING
-             Streams.writeSingleByte(this, oneByte);
++                Streams.writeSingleByte(this, oneByte);
          }
  
-@@ -714,6 +731,21 @@ public class OpenSSLSocketImpl
+         /**
+@@ -714,6 +729,19 @@ public class OpenSSLSocketImpl
                  if (byteCount == 0) {
                      return;
                  }
 +// begin WITH_TAINT_TRACKING
 +                FileDescriptor fd = socket.getFileDescriptor$();
-+                    int disLen = byteCount;
-+                    if (byteCount > Helper.dataBytesToLog) {
-+                        disLen = Helper.dataBytesToLog;
-+                    }
-+                    // We only display at most Helper.dataBytesToLog characters in logcat
-+                    String dstr = new String(buf, offset, disLen);
-+                    // replace non-printable characters
-+                    dstr = dstr.replaceAll("\\p{C}", ".");
-+                    String addr = (fd.hasName) ? fd.name : "unknown";
-+                    String tstr = "0x" + Integer.toHexString(tag);
-+                    //Helper.log("SSLOutputStream.write(" + addr + ") received data with tag " + tstr + " data=[" + dstr + "]");
-+		    Helper.log("DroidBox: { \"CryptoUsage\": { \"operation\": \"sslwrite\", \"tag\": \"" + tstr + "\", \"data\": \"" + Helper.toHex(dstr.getBytes()) + "\", \"addr\": \"" + addr + "\" } }");
++                int disLen = byteCount;
++                if (byteCount > Helper.dataBytesToLog) {
++                     disLen = Helper.dataBytesToLog;
++                }
++                // We only display at most Helper.dataBytesToLog characters in logcat
++                String dstr = new String(buf, offset, disLen);
++                // replace non-printable characters
++                dstr = dstr.replaceAll("\\p{C}", ".");
++                String addr = (fd.hasName) ? fd.name : "unknown";
++                Helper.log("DroidBox: { \"CryptoUsage\": { \"operation\": \"sslwrite\", \"data\": \"" + Helper.toHex(dstr.getBytes()) + "\", \"addr\": \"" + addr + "\" } }");
 +// end WITH_TAINT_TRACKING
                  NativeCrypto.SSL_write(sslNativePointer, socket.getFileDescriptor$(),
                          OpenSSLSocketImpl.this, buf, offset, byteCount);
